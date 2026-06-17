@@ -1,10 +1,10 @@
 import streamlit as st
 import pdfplumber
-from docx import Document
 import tempfile
 import os
 import re
 
+# Set up page configuration
 st.set_page_config(
     page_title="Universal Markdown Schema Matcher",
     page_icon="📄",
@@ -50,20 +50,26 @@ def process_pdf_strictly(file_path):
     return "\n\n".join(markdown_lines)
 
 def process_docx_strictly(file_path):
-    """Extracts text and tables chronologically from Word docs ensuring grid structure formatting matches PDF"""
-    doc = Document(file_path)
+    """Safely extracts text and tables sequentially from Word files using standard module fallbacks"""
+    # Direct try-except import handles cached server package paths dynamically
+    try:
+        import docx
+    except ModuleNotFoundError:
+        # Fallback inline installer if server cache is stubborn
+        os.system("pip install python-docx")
+        import docx
+        
+    doc = docx.Document(file_path)
     markdown_lines = []
-    
     body = doc.element.body
+    
     for child in body.iterchildren():
-        # Check if the element is a standard text paragraph
         if child.tag.endswith('p'):
             from docx.text.paragraph import Paragraph
             p = Paragraph(child, doc)
             if p.text.strip():
                 markdown_lines.append(clean_and_normalize_text(p.text))
                 
-        # Check if the element is a table grid layout
         elif child.tag.endswith('tbl'):
             from docx.table import Table
             t = Table(child, doc)
@@ -71,17 +77,28 @@ def process_docx_strictly(file_path):
                 continue
                 
             markdown_lines.append("\n")
-            
-            # Extract row-by-row cell arrays to match the PDF table formatting exactly
             grid_matrix = []
+            
+            # Loop through each row and extract cells explicitly without duplicating cells
             for row in t.rows:
-                # Extract clean text from each cell in the row
-                row_cells = [cell.text.replace('\n', ' ').strip() for cell in row.cells]
-                grid_matrix.append(row_cells)
+                row_cells = []
+                for cell in row.cells:
+                    cell_text = cell.text.replace('\n', ' ').strip()
+                    # Word sometimes repeats text on merged grid cells; this keeps text clean
+                    if not row_cells or row_cells[-1] != cell_text:
+                        row_cells.append(cell_text)
+                if row_cells:
+                    grid_matrix.append(row_cells)
             
             if grid_matrix:
+                max_cols = max(len(r) for r in grid_matrix)
+                # Pad shorter rows to ensure clean table alignment grids
+                for r in grid_matrix:
+                    while len(r) < max_cols:
+                        r.append("")
+                        
                 header = "| " + " | ".join(grid_matrix[0]) + " |"
-                separator = "| " + " | ".join(["---"] * len(grid_matrix[0])) + " |"
+                separator = "| " + " | ".join(["---"] * max_cols) + " |"
                 markdown_lines.append(header)
                 markdown_lines.append(separator)
                 
@@ -151,7 +168,7 @@ if uploaded_files:
                 st.markdown(f"**Left: {uploaded_files[0].name}**")
                 st.text_area(
                     label="Doc 1 Output View",
-                    value=converted_markdowns[0],  # Correctly isolates ONLY Document 1
+                    value=converted_markdowns[0],  # Explicitly isolates ONLY Document 1 text string
                     height=600,
                     key="side_view_doc1",
                     label_visibility="collapsed"
@@ -161,7 +178,7 @@ if uploaded_files:
                 st.markdown(f"**Right: {uploaded_files[1].name}**")
                 st.text_area(
                     label="Doc 2 Output View",
-                    value=converted_markdowns[1],  # Correctly isolates ONLY Document 2
+                    value=converted_markdowns[1],  # Explicitly isolates ONLY Document 2 text string
                     height=600,
                     key="side_view_doc2",
                     label_visibility="collapsed"
