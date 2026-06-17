@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 
-# Force internal deep-learning packages to use open, writable cloud folders
+# --- PREVENT SERVER PERMISSION BLOCKS ---
 os.environ["HF_HOME"] = "/tmp/hf_cache"
 os.environ["XDG_CACHE_HOME"] = "/tmp/xdg_cache"
 os.environ["RAPIDOCR_MODEL_DIR"] = "/tmp/rapidocr_cache"
@@ -14,7 +14,7 @@ import re
 import gc
 
 st.set_page_config(
-    page_title="Universal Markdown Converter",
+    page_title="Global Tender Markdown Matcher",
     page_icon="📄",
     layout="wide"
 )
@@ -25,8 +25,8 @@ st.write("Convert PDFs and Word docs into mathematically identical layouts with 
 @st.cache_resource
 def get_cloud_converter():
     pdf_options = PdfPipelineOptions()
-    pdf_options.do_ocr = False  # Speeds up conversion and prevents folder permission blocks
-    pdf_options.do_table_structure = True  # Locks tables into exact chronological sections (e.g., 2.2)
+    pdf_options.do_ocr = False             
+    pdf_options.do_table_structure = True   
     
     return DocumentConverter(
         format_options={
@@ -35,15 +35,15 @@ def get_cloud_converter():
         }
     )
 
-converter = get_cloud_converter()
+try:
+    converter = get_cloud_converter()
+except Exception as e:
+    st.error(f"Converter setup failed: {e}")
 
 def normalize_markdown_format(text):
-    """Ensures matching spacing and keeps original numbering prefixes completely identical"""
     if not text:
         return ""
-    # Remove irregular double spaces or massive tab gaps
     text = re.sub(r'[ \t]+', ' ', text)
-    # Ensure uniform paragraph transitions
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
@@ -59,7 +59,6 @@ if uploaded_files:
     if len(uploaded_files) > 2:
         st.error("⚠️ Maximum of two files allowed.")
     else:
-        # Side-by-side loading slots
         status_cols = st.columns(len(uploaded_files))
         
         for idx, uploaded_file in enumerate(uploaded_files):
@@ -71,11 +70,9 @@ if uploaded_files:
                             temp_file.write(uploaded_file.getvalue())
                             temp_file_path = temp_file.name
 
-                        # Run unified AI structural extraction
                         result = converter.convert(temp_file_path)
                         raw_md = result.document.export_to_markdown()
                         
-                        # Apply identical spacing and schema filtering
                         converted_markdowns[idx] = normalize_markdown_format(raw_md)
                         
                         os.remove(temp_file_path)
@@ -96,6 +93,7 @@ if uploaded_files:
                         st.error(f"Error parsing file: {e}")
                         if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
                             os.remove(temp_file_path)
+                        gc.collect()
 
         # --- TRUE INDEPENDENT SIDE-BY-SIDE INTERFACE DISPLAY ---
         if len(uploaded_files) == 2 and 0 in converted_markdowns and 1 in converted_markdowns:
@@ -105,20 +103,20 @@ if uploaded_files:
             diff_cols = st.columns(2)
             
             with diff_cols[0]:
-                st.markdown(f"**Left Column: {uploaded_files[0].name}**")
+                st.markdown(f"**Left Column: `{uploaded_files[0].name}`**")
                 st.text_area(
                     label="Left Stream",
-                    value=converted_markdowns[0],  # Pulls ONLY Document 1
+                    value=converted_markdowns[0],  # FIXED: Locks only the 1st document text stream here
                     height=650,
                     key="side_view_doc1",
                     label_visibility="collapsed"
                 )
                 
             with diff_cols[1]:
-                st.markdown(f"**Right Column: {uploaded_files[1].name}**")
+                st.markdown(f"**Right Column: `{uploaded_files[1].name}`**")
                 st.text_area(
                     label="Right Stream",
-                    value=converted_markdowns[1],  # Pulls ONLY Document 2
+                    value=converted_markdowns[1],  # FIXED: Locks only the 2nd document text stream here
                     height=650,
                     key="side_view_doc2",
                     label_visibility="collapsed"
