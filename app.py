@@ -1,14 +1,9 @@
 import streamlit as st
-import os
-
-# --- STEP 1: FORCE WRITABLE ENGINE PATHS (Must happen BEFORE importing docling) ---
-os.environ["HF_HOME"] = "/tmp/hf_cache"
-os.environ["XDG_CACHE_HOME"] = "/tmp/xdg_cache"
-os.environ["RAPIDOCR_MODEL_DIR"] = "/tmp/rapidocr_cache"
-
-# Now we can safely import the rest of the libraries
-from docling.document_converter import DocumentConverter
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.datamodel.base_models import InputFormat
 import tempfile
+import os
 import gc
 
 # Set up page configuration
@@ -19,12 +14,24 @@ st.set_page_config(
 )
 
 st.title("📄 Universal Markdown Converter")
-st.write("Convert PDFs, Word docs, PowerPoint slides, and HTML into clean Markdown using Docling on Streamlit Cloud.")
+st.write("Convert PDFs, Word docs, PowerPoint slides, and HTML into clean Markdown.")
 
-# Initialize the standard Docling Converter with default cloud capabilities
+# Initialize the standard Docling Converter with OCR disabled to prevent Permission Errors
 @st.cache_resource
 def get_converter():
-    return DocumentConverter()
+    pipeline_options = PdfPipelineOptions()
+    
+    # Disable the rapidocr deep learning model to bypass read-only server folders
+    pipeline_options.do_ocr = False 
+    
+    # Keep high-fidelity structural grid layout tracking for text and tables active
+    pipeline_options.do_table_structure = True 
+    
+    return DocumentConverter(
+        format_options={
+            InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)
+        }
+    )
 
 converter = get_converter()
 
