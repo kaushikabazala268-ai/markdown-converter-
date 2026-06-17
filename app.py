@@ -2,7 +2,7 @@ import streamlit as st
 from docling.document_converter import DocumentConverter, PdfFormatOption, WordFormatOption
 from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.datamodel.base_models import InputFormat
-from docling_core.types.doc import DocItemLabel, TableItem
+from docling.chunking import HierarchicalChunker
 import tempfile
 import re
 import os
@@ -32,53 +32,22 @@ def get_unified_converter():
 
 converter = get_unified_converter()
 
-def clean_spacing(text):
-    """Fixes inconsistent spaces, removes duplicate line-breaks, and preserves inline numbering"""
-    if not text:
-        return ""
-    # Normalize irregular spaces into single spaces
-    text = re.sub(r'[ \t]+', ' ', text)
-    # Ensure nested line items or section breaks have standard spacing
-    return text.strip()
-
 def compile_strict_layout_markdown(conversion_result):
-    """Assembles elements chronologically from the document tree map to prevent table shifting"""
-    doc = conversion_result.document
-    markdown_lines = []
+    """Uses Docling's Hierarchical Chunker to preserve strict table placement and fix text spacing"""
+    chunker = HierarchicalChunker()
+    chunks = chunker.chunk(conversion_result.document)
     
-    # Walk through every structural item sequentially as it appears in the file tree
-    for item, _ in doc.iterate_items():
-        # Handle Tables immediately in their chronological position
-        if isinstance(item, TableItem) or item.label == DocItemLabel.TABLE:
-            try:
-                # Convert the table matrix to standard markdown grid
-                markdown_lines.append("\n" + item.export_to_markdown() + "\n")
-            except Exception:
-                # Fallback if standard element export fails
-                grid_data = getattr(item, 'data', None)
-                if grid_data and hasattr(grid_data, 'table_cells'):
-                    markdown_lines.append("\n<!-- Table Fallback -->\n")
-            continue
+    markdown_lines = []
+    for chunk in chunks:
+        # Get the clean text representation of the chunk (handles tables, lists, headers sequentially)
+        text = chunk.text
+        if text:
+            # Fix spacing/duplicate whitespaces inside the paragraph text
+            text = re.sub(r'[ \t]+', ' ', text).strip()
+            markdown_lines.append(text)
             
-        # Handle Headings and Titles
-        if item.label in [DocItemLabel.TITLE, DocItemLabel.SECTION_HEADER, DocItemLabel.HEADING]:
-            text_content = clean_spacing(getattr(item, 'text', ''))
-            if text_content:
-                markdown_lines.append(f"\n## {text_content}\n")
-                
-        # Handle regular Paragraph text and List Items safely preserving numbering prefixes
-        elif item.label in [DocItemLabel.TEXT, DocItemLabel.PARAGRAPH, DocItemLabel.LIST_ITEM]:
-            text_content = clean_spacing(getattr(item, 'text', ''))
-            if text_content:
-                # Check if it already contains numbering (e.g. 2.1, 2.2) to prevent stripping
-                if re.match(r'^[\d\.\-]+\s', text_content):
-                    markdown_lines.append(text_content)
-                else:
-                    markdown_lines.append(text_content)
-                    
-    # Join with clean line spacing intervals
-    full_md = "\n\n".join([line for line in markdown_lines if line])
-    # Final cleanup of multiple excessive empty newlines
+    # Combine everything with standardized paragraph spacing
+    full_md = "\n\n".join(markdown_lines)
     return re.sub(r'\n{3,}', '\n\n', full_md)
 
 uploaded_files = st.file_uploader(
@@ -107,7 +76,7 @@ if uploaded_files:
 
                         result = converter.convert(temp_file_path)
                         
-                        # Generate the strict chronological markdown array
+                        # Generate the strict layout-sorted markdown
                         markdown_output = compile_strict_layout_markdown(result)
                         converted_markdowns[idx] = markdown_output
                         
@@ -141,8 +110,8 @@ if uploaded_files:
             with diff_cols[0]:
                 st.markdown(f"**Left: {uploaded_files[0].name}**")
                 st.text_area(
-                    label="Doc 1",
-                    value=converted_markdowns[0], # Explicitly targets only Document 1
+                    label="Doc 1 Output",
+                    value=converted_markdowns[0],  # Targets only Document 1
                     height=600,
                     key="side_view_doc1",
                     label_visibility="collapsed"
@@ -151,8 +120,8 @@ if uploaded_files:
             with diff_cols[1]:
                 st.markdown(f"**Right: {uploaded_files[1].name}**")
                 st.text_area(
-                    label="Doc 2",
-                    value=converted_markdowns[1], # Explicitly targets only Document 2
+                    label="Doc 2 Output",
+                    value=converted_markdowns[1],  # Targets only Document 2
                     height=600,
                     key="side_view_doc2",
                     label_visibility="collapsed"
