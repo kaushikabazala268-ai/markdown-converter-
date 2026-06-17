@@ -1,7 +1,14 @@
 import streamlit as st
+import os
+
+# --- STEP 1: FORCE WRITABLE ENGINE PATHS (Must happen BEFORE importing docling) ---
+os.environ["HF_HOME"] = "/tmp/hf_cache"
+os.environ["XDG_CACHE_HOME"] = "/tmp/xdg_cache"
+os.environ["RAPIDOCR_MODEL_DIR"] = "/tmp/rapidocr_cache"
+
+# Now we can safely import the rest of the libraries
 from docling.document_converter import DocumentConverter
 import tempfile
-import os
 import gc
 
 # Set up page configuration
