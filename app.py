@@ -1,5 +1,6 @@
 import streamlit as st
 import pdfplumber
+import docx
 import tempfile
 import os
 import re
@@ -38,8 +39,8 @@ def process_pdf_strictly(file_path):
                 if not table or len(table) == 0:
                     continue
                 markdown_lines.append("\n")
-                header = "| " + " | ".join([str(cell or '').strip() for cell in table[0]]) + " |"
-                separator = "| " + " | ".join(["---"] * len(table[0])) + " |"
+                header = "| " + " | ".join([str(cell or '').strip() for cell in table]) + " |"
+                separator = "| " + " | ".join(["---"] * len(table)) + " |"
                 markdown_lines.append(header)
                 markdown_lines.append(separator)
                 for row in table[1:]:
@@ -50,64 +51,50 @@ def process_pdf_strictly(file_path):
     return "\n\n".join(markdown_lines)
 
 def process_docx_strictly(file_path):
-    """Safely extracts text and tables sequentially from Word files using standard module fallbacks"""
-    # Direct try-except import handles cached server package paths dynamically
-    try:
-        import docx
-    except ModuleNotFoundError:
-        # Fallback inline installer if server cache is stubborn
-        os.system("pip install python-docx")
-        import docx
-        
+    """Extracts paragraphs and structures tables cleanly into Markdown grid layouts"""
     doc = docx.Document(file_path)
     markdown_lines = []
-    body = doc.element.body
     
-    for child in body.iterchildren():
-        if child.tag.endswith('p'):
-            from docx.text.paragraph import Paragraph
-            p = Paragraph(child, doc)
-            if p.text.strip():
-                markdown_lines.append(clean_and_normalize_text(p.text))
-                
-        elif child.tag.endswith('tbl'):
-            from docx.table import Table
-            t = Table(child, doc)
-            if not t.rows or len(t.rows) == 0:
-                continue
-                
-            markdown_lines.append("\n")
-            grid_matrix = []
+    # 1. Extract all text paragraphs cleanly
+    for p in doc.paragraphs:
+        if p.text.strip():
+            markdown_lines.append(clean_and_normalize_text(p.text))
             
-            # Loop through each row and extract cells explicitly without duplicating cells
-            for row in t.rows:
-                row_cells = []
-                for cell in row.cells:
-                    cell_text = cell.text.replace('\n', ' ').strip()
-                    # Word sometimes repeats text on merged grid cells; this keeps text clean
-                    if not row_cells or row_cells[-1] != cell_text:
-                        row_cells.append(cell_text)
-                if row_cells:
-                    grid_matrix.append(row_cells)
+    # 2. Append all document tables structured identically into Markdown grids
+    for table in doc.tables:
+        if not table.rows or len(table.rows) == 0:
+            continue
             
-            if grid_matrix:
-                max_cols = max(len(r) for r in grid_matrix)
-                # Pad shorter rows to ensure clean table alignment grids
-                for r in grid_matrix:
-                    while len(r) < max_cols:
-                        r.append("")
-                        
-                header = "| " + " | ".join(grid_matrix[0]) + " |"
-                separator = "| " + " | ".join(["---"] * max_cols) + " |"
-                markdown_lines.append(header)
-                markdown_lines.append(separator)
+        markdown_lines.append("\n")
+        grid_matrix = []
+        
+        for row in table.rows:
+            row_cells = []
+            for cell in row.cells:
+                cell_text = cell.text.replace('\n', ' ').strip()
+                # Prevent duplication artifacts from merged cells
+                if not row_cells or row_cells[-1] != cell_text:
+                    row_cells.append(cell_text)
+            if row_cells:
+                grid_matrix.append(row_cells)
                 
-                for row_data in grid_matrix[1:]:
-                    row_text = "| " + " | ".join(row_data) + " |"
-                    markdown_lines.append(row_text)
+        if grid_matrix:
+            max_cols = max(len(r) for r in grid_matrix)
+            for r in grid_matrix:
+                while len(r) < max_cols:
+                    r.append("")
                     
-            markdown_lines.append("\n")
+            header = "| " + " | ".join(grid_matrix[0]) + " |"
+            separator = "| " + " | ".join(["---"] * max_cols) + " |"
+            markdown_lines.append(header)
+            markdown_lines.append(separator)
             
+            for row_data in grid_matrix[1:]:
+                row_text = "| " + " | ".join(row_data) + " |"
+                markdown_lines.append(row_text)
+                
+        markdown_lines.append("\n")
+        
     return "\n\n".join(markdown_lines)
 
 uploaded_files = st.file_uploader(
@@ -168,7 +155,7 @@ if uploaded_files:
                 st.markdown(f"**Left: {uploaded_files[0].name}**")
                 st.text_area(
                     label="Doc 1 Output View",
-                    value=converted_markdowns[0],  # Explicitly isolates ONLY Document 1 text string
+                    value=converted_markdowns[0],  # Isolates Document 1 safely
                     height=600,
                     key="side_view_doc1",
                     label_visibility="collapsed"
@@ -178,7 +165,7 @@ if uploaded_files:
                 st.markdown(f"**Right: {uploaded_files[1].name}**")
                 st.text_area(
                     label="Doc 2 Output View",
-                    value=converted_markdowns[1],  # Explicitly isolates ONLY Document 2 text string
+                    value=converted_markdowns[1],  # Isolates Document 2 safely
                     height=600,
                     key="side_view_doc2",
                     label_visibility="collapsed"
