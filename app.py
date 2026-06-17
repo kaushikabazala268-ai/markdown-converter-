@@ -2,8 +2,8 @@ import streamlit as st
 from docling.document_converter import DocumentConverter, PdfFormatOption, WordFormatOption
 from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.datamodel.base_models import InputFormat
-from streamlit_diff_viewer import diff_viewer
 import tempfile
+import difflib
 import os
 import gc
 
@@ -20,8 +20,6 @@ st.write("Upload any two files (Word or PDF) to convert them into identical stru
 def get_unified_converter():
     pdf_options = PdfPipelineOptions()
     pdf_options.do_ocr = False
-    
-    # FORCES the structural layout engine to keep tables in strict chronological order
     pdf_options.do_table_structure = True 
     
     return DocumentConverter(
@@ -60,8 +58,6 @@ if uploaded_files:
                             temp_file_path = temp_file.name
 
                         result = converter.convert(temp_file_path)
-                        
-                        # Sequential block export ensures Word and PDF map to the same markdown engine
                         markdown_output = result.document.export_to_markdown()
                         
                         # Save converted output to cross-compare later
@@ -95,15 +91,24 @@ if uploaded_files:
                             os.remove(temp_file_path)
                         gc.collect()
 
-        # --- LIVE INTERACTIVE DIFF VIEW SECTION ---
+        # --- LIVE NATIVE SIDE-BY-SIDE DIFF VIEW SECTION ---
         if len(uploaded_files) == 2 and 0 in converted_markdowns and 1 in converted_markdowns:
             st.markdown("---")
             st.header("🔍 Interactive Document Difference Analysis")
-            st.write("Red highlights represent removals/changes from Document 1, Green highlights indicate updates in Document 2.")
+            st.write("Below is a side-by-side comparison. Use the scrollbars to look through both converted documents simultaneously.")
             
-            # Renders clean, color-coded delta changes directly on screen
-            diff_viewer(
-                old_text=converted_markdowns[0], 
-                new_text=converted_markdowns[1],
-                lang="markdown"
+            # Split strings into line arrays for comparison calculations
+            lines1 = converted_markdowns[0].splitlines()
+            lines2 = converted_markdowns[1].splitlines()
+            
+            # Use Python's built-in engine to generate a clean, responsive HTML table view
+            diff_engine = difflib.HtmlDiff()
+            diff_html = diff_engine.make_file(
+                lines1, 
+                lines2, 
+                fromdesc=uploaded_files[0].name, 
+                todesc=uploaded_files[1].name
             )
+            
+            # Safely render the HTML structure directly inside Streamlit
+            st.components.v1.html(diff_html, height=600, scrolling=True)
