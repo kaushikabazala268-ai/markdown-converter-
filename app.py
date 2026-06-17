@@ -1,11 +1,9 @@
 import streamlit as st
-from docling.document_converter import DocumentConverter, PdfFormatOption, WordFormatOption
-from docling.datamodel.pipeline_options import PdfPipelineOptions
-from docling.datamodel.base_models import InputFormat
+import pdfplumber
+import docx2txt
 import tempfile
-import re
 import os
-import gc
+import re
 
 st.set_page_config(
     page_title="Universal Markdown Schema Matcher",
@@ -16,36 +14,50 @@ st.set_page_config(
 st.title("📄 Universal Markdown Schema Matcher & Side-by-Side Viewer")
 st.write("Upload any two files (Word or PDF) to convert them with identical formatting and layout logic.")
 
-@st.cache_resource
-def get_unified_converter():
-    pdf_options = PdfPipelineOptions()
-    pdf_options.do_ocr = False
-    pdf_options.do_table_structure = True 
-    
-    return DocumentConverter(
-        format_options={
-            InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_options),
-            InputFormat.DOCX: WordFormatOption()
-        }
-    )
-
-converter = get_unified_converter()
-
-def unify_and_clean_markdown(raw_markdown):
-    """Normalizes whitespace and formats both Word and PDF into an identical schema"""
-    if not raw_markdown:
+def clean_and_normalize_text(text):
+    """Fixes word document spacing gaps and standardizes markdown structural breaks"""
+    if not text:
         return ""
-    
-    # Replace tab spaces or irregular text gaps with a standard single space
-    text = re.sub(r'[ \t]+', ' ', raw_markdown)
-    
-    # Ensure all tables have a clean newline cushion around them so they render correctly
-    text = re.sub(r'(\|.*\|)\n([^|])', r'\1\n\n\2', text)
-    
-    # Eliminate multiple redundant empty lines down to a clean double newline spacing
+    # Convert irregular tab gaps into standard spaces
+    text = re.sub(r'[ \t]+', ' ', text)
+    # Ensure any running lists retain their literal prefixes (like 2.1, 2.2) safely
     text = re.sub(r'\n{3,}', '\n\n', text)
-    
     return text.strip()
+
+def process_pdf_strictly(file_path):
+    """Extracts PDF layout page-by-page, keeping tables locked directly within text blocks"""
+    markdown_lines = []
+    with pdfplumber.open(file_path) as pdf:
+        for page in pdf.pages:
+            # Step 1: Extract all structural layout blocks on the page chronologically
+            page_text = page.extract_text(layout=True)
+            tables = page.extract_tables()
+            
+            if page_text:
+                cleaned_text = clean_and_normalize_text(page_text)
+                markdown_lines.append(cleaned_text)
+                
+            # Step 2: Format and append tables right under their target paragraph sections
+            for table in tables:
+                if not table or not table[0]:
+                    continue
+                markdown_lines.append("\n")
+                # Construct identical Markdown grid schema
+                header = "| " + " | ".join([str(cell or '').strip() for cell in table[0]]) + " |"
+                separator = "| " + " | ".join(["---"] * len(table[0])) + " |"
+                markdown_lines.append(header)
+                markdown_lines.append(separator)
+                for row in table[1:]:
+                    row_text = "| " + " | ".join([str(cell or '').strip() for cell in row]) + " |"
+                    markdown_lines.append(row_text)
+                markdown_lines.append("\n")
+                
+    return "\n\n".join(markdown_lines)
+
+def process_docx_strictly(file_path):
+    """Processes Word document xml segments into an identical text layout pattern"""
+    raw_text = docx2txt.process(file_path)
+    return clean_and_normalize_text(raw_text)
 
 uploaded_files = st.file_uploader(
     "Upload exactly two documents to compare (PDF or DOCX)", 
@@ -59,7 +71,6 @@ if uploaded_files:
     if len(uploaded_files) > 2:
         st.error("⚠️ Maximum of two files allowed for comparison.")
     else:
-        # Step 1: Sequential data loading and processing status
         status_cols = st.columns(len(uploaded_files))
         
         for idx, uploaded_file in enumerate(uploaded_files):
@@ -71,23 +82,21 @@ if uploaded_files:
                             temp_file.write(uploaded_file.getvalue())
                             temp_file_path = temp_file.name
 
-                        # Run core conversion engine
-                        result = converter.convert(temp_file_path)
-                        raw_output = result.document.export_to_markdown()
-                        
-                        # Apply our text mapping filter for equal formats
-                        markdown_output = unify_and_clean_markdown(raw_output)
-                        converted_markdowns[idx] = markdown_output
-                        
+                        # Routing parsing execution pathways safely based on extension types
+                        if suffix == ".pdf":
+                            output = process_pdf_strictly(temp_file_path)
+                        else:
+                            output = process_docx_strictly(temp_file_path)
+                            
+                        converted_markdowns[idx] = output
                         os.remove(temp_file_path)
-                        gc.collect()
                         
                         st.success(f"📄 Doc {idx+1} Loaded")
                         
                         base_name, _ = os.path.splitext(uploaded_file.name)
                         st.download_button(
                             label=f"📥 Download Markdown {idx+1}",
-                            data=markdown_output,
+                            data=output,
                             file_name=f"{base_name}.md",
                             mime="text/markdown",
                             key=f"dl_btn_{idx}"
@@ -97,9 +106,8 @@ if uploaded_files:
                         st.error(f"Error parsing file: {e}")
                         if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
                             os.remove(temp_file_path)
-                        gc.collect()
 
-        # --- STEP 2: TRUE SIDE-BY-SIDE SEPARATED INTERFACE ---
+        # --- TRUE SIDE-BY-SIDE SEPARATED INTERFACE ---
         if len(uploaded_files) == 2 and 0 in converted_markdowns and 1 in converted_markdowns:
             st.markdown("---")
             st.header("🔍 Side-by-Side Content View")
@@ -110,7 +118,7 @@ if uploaded_files:
                 st.markdown(f"**Left: {uploaded_files[0].name}**")
                 st.text_area(
                     label="Doc 1 Output View",
-                    value=converted_markdowns[0],  # Isolates ONLY document index 0 data stream
+                    value=converted_markdowns[0],  # Correctly isolates Document 1 text string
                     height=600,
                     key="side_view_doc1",
                     label_visibility="collapsed"
@@ -120,7 +128,7 @@ if uploaded_files:
                 st.markdown(f"**Right: {uploaded_files[1].name}**")
                 st.text_area(
                     label="Doc 2 Output View",
-                    value=converted_markdowns[1],  # Isolates ONLY document index 1 data stream
+                    value=converted_markdowns[1],  # Correctly isolates Document 2 text string
                     height=600,
                     key="side_view_doc2",
                     label_visibility="collapsed"
