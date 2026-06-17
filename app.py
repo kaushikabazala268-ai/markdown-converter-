@@ -1,6 +1,6 @@
 import streamlit as st
 import pdfplumber
-import docx2txt
+from docx import Document
 import tempfile
 import os
 import re
@@ -15,12 +15,10 @@ st.title("📄 Universal Markdown Schema Matcher & Side-by-Side Viewer")
 st.write("Upload any two files (Word or PDF) to convert them with identical formatting and layout logic.")
 
 def clean_and_normalize_text(text):
-    """Fixes word document spacing gaps and standardizes markdown structural breaks"""
+    """Standardizes spaces and removes duplicate structural line breaks"""
     if not text:
         return ""
-    # Convert irregular tab gaps into standard spaces
     text = re.sub(r'[ \t]+', ' ', text)
-    # Ensure any running lists retain their literal prefixes (like 2.1, 2.2) safely
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
@@ -29,7 +27,6 @@ def process_pdf_strictly(file_path):
     markdown_lines = []
     with pdfplumber.open(file_path) as pdf:
         for page in pdf.pages:
-            # Step 1: Extract all structural layout blocks on the page chronologically
             page_text = page.extract_text(layout=True)
             tables = page.extract_tables()
             
@@ -37,12 +34,10 @@ def process_pdf_strictly(file_path):
                 cleaned_text = clean_and_normalize_text(page_text)
                 markdown_lines.append(cleaned_text)
                 
-            # Step 2: Format and append tables right under their target paragraph sections
             for table in tables:
-                if not table or not table[0]:
+                if not table or len(table) == 0:
                     continue
                 markdown_lines.append("\n")
-                # Construct identical Markdown grid schema
                 header = "| " + " | ".join([str(cell or '').strip() for cell in table[0]]) + " |"
                 separator = "| " + " | ".join(["---"] * len(table[0])) + " |"
                 markdown_lines.append(header)
@@ -55,9 +50,48 @@ def process_pdf_strictly(file_path):
     return "\n\n".join(markdown_lines)
 
 def process_docx_strictly(file_path):
-    """Processes Word document xml segments into an identical text layout pattern"""
-    raw_text = docx2txt.process(file_path)
-    return clean_and_normalize_text(raw_text)
+    """Extracts text and tables chronologically from Word docs ensuring grid structure formatting matches PDF"""
+    doc = Document(file_path)
+    markdown_lines = []
+    
+    body = doc.element.body
+    for child in body.iterchildren():
+        # Check if the element is a standard text paragraph
+        if child.tag.endswith('p'):
+            from docx.text.paragraph import Paragraph
+            p = Paragraph(child, doc)
+            if p.text.strip():
+                markdown_lines.append(clean_and_normalize_text(p.text))
+                
+        # Check if the element is a table grid layout
+        elif child.tag.endswith('tbl'):
+            from docx.table import Table
+            t = Table(child, doc)
+            if not t.rows or len(t.rows) == 0:
+                continue
+                
+            markdown_lines.append("\n")
+            
+            # Extract row-by-row cell arrays to match the PDF table formatting exactly
+            grid_matrix = []
+            for row in t.rows:
+                # Extract clean text from each cell in the row
+                row_cells = [cell.text.replace('\n', ' ').strip() for cell in row.cells]
+                grid_matrix.append(row_cells)
+            
+            if grid_matrix:
+                header = "| " + " | ".join(grid_matrix[0]) + " |"
+                separator = "| " + " | ".join(["---"] * len(grid_matrix[0])) + " |"
+                markdown_lines.append(header)
+                markdown_lines.append(separator)
+                
+                for row_data in grid_matrix[1:]:
+                    row_text = "| " + " | ".join(row_data) + " |"
+                    markdown_lines.append(row_text)
+                    
+            markdown_lines.append("\n")
+            
+    return "\n\n".join(markdown_lines)
 
 uploaded_files = st.file_uploader(
     "Upload exactly two documents to compare (PDF or DOCX)", 
@@ -82,7 +116,6 @@ if uploaded_files:
                             temp_file.write(uploaded_file.getvalue())
                             temp_file_path = temp_file.name
 
-                        # Routing parsing execution pathways safely based on extension types
                         if suffix == ".pdf":
                             output = process_pdf_strictly(temp_file_path)
                         else:
@@ -118,7 +151,7 @@ if uploaded_files:
                 st.markdown(f"**Left: {uploaded_files[0].name}**")
                 st.text_area(
                     label="Doc 1 Output View",
-                    value=converted_markdowns[0],  # Correctly isolates Document 1 text string
+                    value=converted_markdowns[0],  # Correctly isolates ONLY Document 1
                     height=600,
                     key="side_view_doc1",
                     label_visibility="collapsed"
@@ -128,7 +161,7 @@ if uploaded_files:
                 st.markdown(f"**Right: {uploaded_files[1].name}**")
                 st.text_area(
                     label="Doc 2 Output View",
-                    value=converted_markdowns[1],  # Correctly isolates Document 2 text string
+                    value=converted_markdowns[1],  # Correctly isolates ONLY Document 2
                     height=600,
                     key="side_view_doc2",
                     label_visibility="collapsed"
