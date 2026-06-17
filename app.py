@@ -1,28 +1,29 @@
 import streamlit as st
 from docling.document_converter import DocumentConverter, PdfFormatOption, WordFormatOption
-from docling.datamodel.pipeline_options import PdfPipelineOptions, EmbeddingPipelineOptions
+from docling.datamodel.pipeline_options import PdfPipelineOptions
 from docling.datamodel.base_models import InputFormat
+from streamlit_diff_viewer import diff_viewer
 import tempfile
 import os
 import gc
 
 st.set_page_config(
-    page_title="Unified Multi-Markdown Converter",
+    page_title="Universal Markdown Schema Matcher",
     page_icon="📄",
     layout="wide"
 )
 
-st.title("📄 Unified Multi-Markdown Converter")
-st.write("Upload up to 2 files (PDF or Word) to convert them into a mathematically identical Markdown schema.")
+st.title("📄 Universal Markdown Schema Matcher & Diff Viewer")
+st.write("Upload any two files (Word or PDF) to convert them into identical structural formats and see live text changes.")
 
 @st.cache_resource
 def get_unified_converter():
-    # Configure PDF Pipeline to enforce strict sequential table containment
     pdf_options = PdfPipelineOptions()
     pdf_options.do_ocr = False
-    pdf_options.do_table_structure = True
     
-    # Configure unified layout extraction rules across different engines
+    # FORCES the structural layout engine to keep tables in strict chronological order
+    pdf_options.do_table_structure = True 
+    
     return DocumentConverter(
         format_options={
             InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_options),
@@ -32,41 +33,44 @@ def get_unified_converter():
 
 converter = get_unified_converter()
 
-# Accept exactly up to two documents simultaneously
 uploaded_files = st.file_uploader(
-    "Choose up to two files to convert (PDF or Word)", 
+    "Upload exactly two documents to compare (PDF or DOCX)", 
     type=["pdf", "docx"],
     accept_multiple_files=True
 )
 
+converted_markdowns = {}
+
 if uploaded_files:
     if len(uploaded_files) > 2:
-        st.error("Please select a maximum of two files at a time.")
+        st.error("⚠️ Maximum of two files allowed for comparison.")
     else:
-        # Create columns dynamically based on the number of uploaded files
+        # Side-by-side processing columns
         cols = st.columns(len(uploaded_files))
         
         for idx, uploaded_file in enumerate(uploaded_files):
             with cols[idx]:
                 st.subheader(f"📄 Document {idx+1}: {uploaded_file.name}")
                 
-                with st.spinner("Extracting structural data..."):
+                with st.spinner("Parsing structure and tables..."):
                     try:
                         suffix = f".{uploaded_file.name.split('.')[-1]}".lower()
                         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
                             temp_file.write(uploaded_file.getvalue())
                             temp_file_path = temp_file.name
 
-                        # Convert using structural layout preservation maps
                         result = converter.convert(temp_file_path)
                         
-                        # Sequential block assembly fixes layout grouping anomalies
+                        # Sequential block export ensures Word and PDF map to the same markdown engine
                         markdown_output = result.document.export_to_markdown()
+                        
+                        # Save converted output to cross-compare later
+                        converted_markdowns[idx] = markdown_output
                         
                         os.remove(temp_file_path)
                         gc.collect()
                         
-                        st.success(f"Successfully processed Document {idx+1}!")
+                        st.success(f"Document {idx+1} complete!")
                         
                         base_name, _ = os.path.splitext(uploaded_file.name)
                         st.download_button(
@@ -74,19 +78,32 @@ if uploaded_files:
                             data=markdown_output,
                             file_name=f"{base_name}.md",
                             mime="text/markdown",
-                            key=f"dl_{idx}"
+                            key=f"dl_btn_{idx}"
                         )
                         
                         with st.expander("👀 View Formatting", expanded=True):
                             st.text_area(
-                                label="Raw Markdown Code", 
+                                label="Raw Content", 
                                 value=markdown_output, 
-                                height=500,
-                                key=f"ta_{idx}"
+                                height=400,
+                                key=f"text_area_{idx}"
                             )
                             
                     except Exception as e:
-                        st.error(f"Error parsing file: {e}")
+                        st.error(f"Processing error: {e}")
                         if 'temp_file_path' in locals() and os.path.exists(temp_file_path):
                             os.remove(temp_file_path)
                         gc.collect()
+
+        # --- LIVE INTERACTIVE DIFF VIEW SECTION ---
+        if len(uploaded_files) == 2 and 0 in converted_markdowns and 1 in converted_markdowns:
+            st.markdown("---")
+            st.header("🔍 Interactive Document Difference Analysis")
+            st.write("Red highlights represent removals/changes from Document 1, Green highlights indicate updates in Document 2.")
+            
+            # Renders clean, color-coded delta changes directly on screen
+            diff_viewer(
+                old_text=converted_markdowns[0], 
+                new_text=converted_markdowns[1],
+                lang="markdown"
+            )
