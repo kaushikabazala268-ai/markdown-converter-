@@ -19,7 +19,7 @@ def normalize_markdown_format(text):
     """Collapse runs of 3+ blank lines to max 1 blank line between blocks."""
     if not text:
         return ""
-    # Collapse horizontal whitespace
+    # Collapse horizontal whitespace kaushika
     text = re.sub(r'[ \t]+', ' ', text)
     # Replace 3 or more newlines with exactly 2 (one blank line)
     text = re.sub(r'\n{3,}', '\n\n', text)
