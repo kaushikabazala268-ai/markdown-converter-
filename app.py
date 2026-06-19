@@ -15,10 +15,12 @@ def process_docx_elements(uploaded_file):
         # Word stores components chronologically in the body element tree
         for element in doc.element.body:
             if element.tag.endswith('p'): # Paragraph Element
-                p_text = ""
-                for p in doc.paragraphs:
-                    if p._element == element:
-                        p_text = p.text.strip()
+                p_text = element.text_content().strip() if hasattr(element, 'text_content') else ""
+                if not p_text:
+                    # Fallback to standard paragraph lookup if element text mapping varies
+                    for p in doc.paragraphs:
+                        if p._element == element:
+                            p_text = p.text.strip()
                 if p_text:
                     elements.append(('text', p_text))
                     
@@ -42,9 +44,11 @@ def process_pdf_elements(uploaded_file):
         elements = []
         with pdfplumber.open(uploaded_file) as pdf:
             for page in pdf.pages:
+                # Get chronological layout objects
                 tables = page.extract_tables()
                 page_text = page.extract_text(layout=True)
                 
+                # If tables exist, separate them safely from flat text lines
                 if tables:
                     for table in tables:
                         elements.append(('table', table))
@@ -106,6 +110,7 @@ def render_diff_engine(file1, file2):
         type1, val1 = el1
         type2, val2 = el2
         
+        # Scenario A: Element was completely added
         if val1 is None:
             added_count += 1
             if type2 == 'text':
@@ -118,6 +123,7 @@ def render_diff_engine(file1, file2):
             all_blocks_html.append((html, 'added'))
             continue
             
+        # Scenario B: Element was completely deleted
         if val2 is None:
             deleted_count += 1
             if type1 == 'text':
@@ -130,7 +136,9 @@ def render_diff_engine(file1, file2):
             all_blocks_html.append((html, 'deleted'))
             continue
             
+        # Scenario C: Compare side-by-side elements
         if type1 == 'text' or type2 == 'text':
+            # Force conversion to strings to check paragraph word adjustments
             str1 = " ".join([" ".join(row) for row in val1]) if type1 == 'table' else str(val1)
             str2 = " ".join([" ".join(row) for row in val2]) if type2 == 'table' else str(val2)
             
@@ -174,6 +182,7 @@ def render_diff_engine(file1, file2):
     return all_blocks_html, added_count, deleted_count, modified_count
 
 def main():
+    # Global Theme Injection Layer
     st.markdown("""
     <style>
         @import url('https://googleapis.com');
@@ -215,6 +224,7 @@ def main():
         .block-added { background-color: rgba(46, 160, 67, 0.04) !important; }
         .block-deleted { background-color: rgba(248, 51, 60, 0.04) !important; }
 
+        /* Pure word-level highlights. Absolutely NO strikethroughs */
         .diff-add {
             background-color: rgba(46, 160, 67, 0.25) !important;
             color: #3fb950 !important;
@@ -224,19 +234,3 @@ def main():
             text-decoration: none !important;
         }
         .diff-del {
-            background-color: rgba(248, 51, 60, 0.25) !important;
-            color: #f85149 !important;
-            padding: 2px 6px !important;
-            border-radius: 4px !important;
-            font-weight: 500 !important;
-            text-decoration: none !important;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-
-    st.title("📄 Multi-Format Unified Layout Diff Matrix")
-    st.caption("Parses text and structural grid tables seamlessly for PDF and Word files.")
-    
-    st.sidebar.header("Document Sources")
-    uploaded_old = st.sidebar.file_uploader("Upload Original File", type=["pdf", "docx"])
-    uploaded_new = st.sidebar.file_uploader("Upload Modified File", type=["pdf", "docx"])
