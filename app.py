@@ -4,7 +4,7 @@ import os
 import docx2txt
 import pdfplumber
 
-# Set page layout config to wide mode for absolute maximum text space
+# Force wide layout to accommodate the side-by-side markdown comparison engine matrix
 st.set_page_config(page_title="Perfect Document Diff Matrix", layout="wide")
 
 def extract_text(uploaded_file):
@@ -22,11 +22,9 @@ def extract_text(uploaded_file):
             return docx2txt.process(uploaded_file)
             
         elif file_ext == "pdf":
-            # Using pdfplumber to strictly preserve layout matrices and table spaces
             text_slices = []
             with pdfplumber.open(uploaded_file) as pdf:
                 for page in pdf.pages:
-                    # extract_text(layout=True) forces spaces to preserve table grids
                     page_text = page.extract_text(layout=True)
                     if page_text:
                         text_slices.append(page_text)
@@ -37,84 +35,107 @@ def extract_text(uploaded_file):
         return ""
     return ""
 
+def highlight_words(line1, line2):
+    """Compares two lines word-by-word and applies styling strictly to changed words."""
+    words1 = line1.split()
+    words2 = line2.split()
+    
+    sm = difflib.SequenceMatcher(None, words1, words2)
+    
+    out1, out2 = [], []
+    
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == 'equal':
+            out1.extend(words1[i1:i2])
+            out2.extend(words2[j1:j2])
+        elif tag == 'replace':
+            # Highlight only the specific word changed instead of striking through everything
+            out1.append(f'<span class="word-del">{" ".join(words1[i1:i2])}</span>')
+            out2.append(f'<span class="word-add">{" ".join(words2[j1:j2])}</span>')
+        elif tag == 'delete':
+            out1.append(f'<span class="word-del">{" ".join(words1[i1:i2])}</span>')
+        elif tag == 'insert':
+            out2.append(f'<span class="word-add">{" ".join(words2[j1:j2])}</span>')
+            
+    return " ".join(out1), " ".join(out2)
+
 def main():
-    # Custom embedded styling inside Streamlit to load external typography and freeze layouts
+    # Premium CSS layout lock: forces monospace matrix grids, hides default markdown table padding
     st.markdown("""
     <style>
-        /* Import premium fonts from Google Fonts API */
         @import url('https://googleapis.com');
 
-        /* Force Inter Font styling on global application text wrapper layers */
-        html, body, [data-testid="stAppViewContainer"], .stMarkdown, .stButton button, p, h1, h2, h3, span {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+        html, body, [data-testid="stAppViewContainer"], .stMarkdown, p, h1, h2, h3, span {
+            font-family: 'Inter', sans-serif !important;
         }
         
-        /* Master Headings typography tuning */
-        h1 {
-            font-weight: 700 !important;
-            letter-spacing: -0.02em !important;
-        }
-        
-        /* Custom UI Buttons styling overrides */
-        .stButton button {
-            font-weight: 600 !important;
-            font-size: 13px !important;
-            letter-spacing: -0.01em !important;
-            border-radius: 8px !important;
-            transition: all 0.2s ease;
+        /* Clear margins to remove awkward spacing gaps */
+        .block-container {
+            padding-top: 2rem !important;
+            padding-bottom: 2rem !important;
         }
 
-        /* Laser-focused locked typography constraints for the Document Matrix data rows */
-        .diff-container, .line-row, code, pre {
+        /* Pure Monospace Table Matrix Formatting rules */
+        .diff-table {
+            width: 100%;
+            border-collapse: collapse;
             font-family: 'JetBrains Mono', monospace !important;
             font-size: 13px !important;
-            line-height: 1.45 !important;
-            letter-spacing: 0em !important;
-        }
-        
-        /* Layout block definitions */
-        .diff-container {
+            line-height: 1.5 !important;
             background-color: #0d1117;
             color: #c9d1d9;
-            padding: 20px;
-            border-radius: 8px;
             border: 1px solid #30363d;
-            white-space: pre;
-            overflow-x: auto;
-            margin-top: 10px;
         }
-        .line-row {
-            margin: 0 !important;
-            padding: 1px 0 !important;
-            min-height: 1.45em;
+        
+        .diff-table th {
+            background-color: #161b22;
+            padding: 10px;
+            text-align: left;
+            border-bottom: 2px solid #30363d;
+            font-family: 'Inter', sans-serif !important;
+            font-weight: 600;
         }
-        .highlight-add {
-            background-color: rgba(46, 160, 67, 0.22);
+        
+        .diff-table td {
+            padding: 2px 8px;
+            border-bottom: 1px solid #21262d;
+            white-space: pre-wrap;
+            vertical-align: top;
+            width: 50%;
+        }
+
+        /* Row background tints based on layout states */
+        .row-equal { background-color: transparent; }
+        .row-added { background-color: rgba(46, 160, 67, 0.1); }
+        .row-deleted { background-color: rgba(248, 51, 60, 0.1); }
+        .row-modified { background-color: rgba(210, 153, 34, 0.1); }
+
+        /* Laser-accurate inline changes highlights (No global strikethroughs) */
+        .word-add {
+            background-color: rgba(46, 160, 67, 0.3);
             color: #3fb950;
-            display: inline-block;
-            width: 100%;
-            font-weight: 500;
+            padding: 0 2px;
+            border-radius: 3px;
         }
-        .highlight-del {
-            background-color: rgba(248, 51, 60, 0.22);
+        .word-del {
+            background-color: rgba(248, 51, 60, 0.3);
             color: #f85149;
             text-decoration: line-through;
-            display: inline-block;
-            width: 100%;
-            font-weight: 500;
+            padding: 0 2px;
+            border-radius: 3px;
         }
     </style>
     """, unsafe_allow_html=True)
 
     st.title("📄 Perfect Document Diff Matrix")
-    st.caption("Supports: PDF (via pdfplumber Layout engine), DOCX, TXT, and MD formats")
+    st.caption("Side-by-Side structural Markdown mapping with word-level highlight resolution.")
     
     st.sidebar.header("Document Sources")
     uploaded_old = st.sidebar.file_uploader("Upload Original File", type=["txt", "md", "docx", "pdf"])
     uploaded_new = st.sidebar.file_uploader("Upload Modified File", type=["txt", "md", "docx", "pdf"])
     
     if not uploaded_old or not uploaded_new:
-        st.info("Please upload both the original and modified document in the sidebar to view changes.")
+        st.info("Please upload both documents in the sidebar configuration drawer to run comparison calculations.")
         return
 
     text1 = extract_text(uploaded_old)
@@ -125,70 +146,80 @@ def main():
     
     matcher = difflib.SequenceMatcher(None, lines1, lines2)
     
-    all_rows = []
-    added_rows = []
-    deleted_rows = []
-    modified_rows = []
+    # Global arrays holding compiled data mappings
+    all_matrix = []
+    added_matrix = []
+    deleted_matrix = []
+    modified_matrix = []
     
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == 'equal':
             for line in lines1[i1:i2]:
-                safe_line = line.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                row_html = f'<div class="line-row">{safe_line}</div>'
-                all_rows.append(row_html)
-        
+                row = f'<tr class="row-equal"><td>{line}</td><td>{line}</td></tr>'
+                all_matrix.append(row)
+                
         elif tag == 'replace':
-            for line in lines1[i1:i2]:
-                safe_line = line.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                row_html = f'<div class="line-row"><span class="highlight-del">{safe_line}</span></div>'
-                all_rows.append(row_html)
-                modified_rows.append(row_html)
-            for line in lines2[j1:j2]:
-                safe_line = line.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                row_html = f'<div class="line-row"><span class="highlight-add">{safe_line}</span></div>'
-                all_rows.append(row_html)
-                modified_rows.append(row_html)
+            # Balance blocks line-by-line to preserve layout alignment tracking
+            max_len = max(i2 - i1, j2 - j1)
+            for idx in range(max_len):
+                l1 = lines1[i1 + idx] if (i1 + idx) < i2 else ""
+                l2 = lines2[j1 + idx] if (j1 + idx) < j2 else ""
+                
+                hl1, hl2 = highlight_words(l1, l2)
+                row = f'<tr class="row-modified"><td>{hl1}</td><td>{hl2}</td></tr>'
+                all_matrix.append(row)
+                modified_matrix.append(row)
                 
         elif tag == 'delete':
             for line in lines1[i1:i2]:
-                safe_line = line.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                row_html = f'<div class="line-row"><span class="highlight-del">{safe_line}</span></div>'
-                all_rows.append(row_html)
-                deleted_rows.append(row_html)
+                row = f'<tr class="row-deleted"><td><span class="word-del">{line}</span></td><td></td></tr>'
+                all_matrix.append(row)
+                deleted_matrix.append(row)
                 
         elif tag == 'insert':
             for line in lines2[j1:j2]:
-                safe_line = line.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-                row_html = f'<div class="line-row"><span class="highlight-add">{safe_line}</span></div>'
-                all_rows.append(row_html)
-                added_rows.append(row_html)
+                row = f'<tr class="row-added"><td></td><td><span class="word-add">{line}</span></td></tr>'
+                all_matrix.append(row)
+                added_matrix.append(row)
 
-    # Interactive Navigation Action Buttons using Native Streamlit Columns
+    # Filtering Panel Buttons Navigation layout matrix
     col1, col2, col3, col4 = st.columns(4)
-    
-    if "current_view" not in st.session_state:
-        st.session_state.current_view = "Show All"
+    if "view_state" not in st.session_state:
+        st.session_state.view_state = "Show All"
         
-    if col1.button("Show All", use_container_width=True):
-        st.session_state.current_view = "Show All"
-    if col2.button(f"Added ({len(added_rows)})", use_container_width=True):
-        st.session_state.current_view = "Added"
-    if col3.button(f"Deleted ({len(deleted_rows)})", use_container_width=True):
-        st.session_state.current_view = "Deleted"
-    if col4.button(f"Modified ({len(modified_rows)})", use_container_width=True):
-        st.session_state.current_view = "Modified"
+    if col1.button("Show All", use_container_width=True): st.session_state.view_state = "Show All"
+    if col2.button(f"Added ({len(added_matrix)})", use_container_width=True): st.session_state.view_state = "Added"
+    if col3.button(f"Deleted ({len(deleted_matrix)})", use_container_width=True): st.session_state.view_state = "Deleted"
+    if col4.button(f"Modified ({len(modified_matrix)})", use_container_width=True): st.session_state.view_state = "Modified"
 
-    if st.session_state.current_view == "Show All":
-        selected_data = "".join(all_rows)
-    elif st.session_state.current_view == "Added":
-        selected_data = "".join(added_rows) if added_rows else '<div class="line-row">No records found.</div>'
-    elif st.session_state.current_view == "Deleted":
-        selected_data = "".join(deleted_rows) if deleted_rows else '<div class="line-row">No records found.</div>'
-    elif st.session_state.current_view == "Modified":
-        selected_data = "".join(modified_rows) if modified_rows else '<div class="line-row">No records found.</div>'
+    # Select proper matrix array data string block
+    if st.session_state.view_state == "Show All":
+        active_rows = "".join(all_matrix)
+    elif st.session_state.view_state == "Added":
+        active_rows = "".join(added_matrix) if added_matrix else '<tr><td colspan="2">No elements found.</td></tr>'
+    elif st.session_state.view_state == "Deleted":
+        active_rows = "".join(deleted_matrix) if deleted_matrix else '<tr><td colspan="2">No elements found.</td></tr>'
+    elif st.session_state.view_state == "Modified":
+        active_rows = "".join(modified_matrix) if modified_matrix else '<tr><td colspan="2">No elements found.</td></tr>'
 
-    st.subheader(f"Viewing: {st.session_state.current_view}")
-    st.markdown(f'<div class="diff-container">{selected_data}</div>', unsafe_allow_html=True)
+    st.subheader(f"Current Matrix Target: {st.session_state.view_state}")
+    
+    # Generate the perfect side-by-side document layout markdown table 
+    table_markdown = f"""
+    <table class="diff-table">
+        <thead>
+            <tr>
+                <th>Original Layout State ({uploaded_old.name})</th>
+                <th>Modified Layout State ({uploaded_new.name})</th>
+            </tr>
+        </thead>
+        <tbody>
+            {active_rows}
+        </tbody>
+    </table>
+    """
+    
+    st.markdown(table_markdown, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
