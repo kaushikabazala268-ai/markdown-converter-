@@ -2,7 +2,7 @@ import streamlit as st
 import difflib
 import os
 import docx2txt
-from pypdf import PdfReader
+import pdfplumber
 
 # Set page layout config to wide mode for absolute maximum text space
 st.set_page_config(page_title="Perfect Document Diff Matrix", layout="wide")
@@ -22,12 +22,14 @@ def extract_text(uploaded_file):
             return docx2txt.process(uploaded_file)
             
         elif file_ext == "pdf":
-            reader = PdfReader(uploaded_file)
+            # Using pdfplumber to strictly preserve layout matrices and table spaces
             text_slices = []
-            for page in reader.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text_slices.append(page_text)
+            with pdfplumber.open(uploaded_file) as pdf:
+                for page in pdf.pages:
+                    # extract_text(layout=True) forces spaces to preserve table grids
+                    page_text = page.extract_text(layout=True)
+                    if page_text:
+                        text_slices.append(page_text)
             return "\n".join(text_slices)
             
     except Exception as e:
@@ -39,8 +41,7 @@ def main():
     # Custom embedded styling inside Streamlit to load external typography and freeze layouts
     st.markdown("""
     <style>
-        /* Import premium fonts from
-        */
+        /* Import premium fonts from Google Fonts API */
         @import url('https://googleapis.com');
 
         /* Force Inter Font styling on global application text wrapper layers */
@@ -106,7 +107,7 @@ def main():
     """, unsafe_allow_html=True)
 
     st.title("📄 Perfect Document Diff Matrix")
-    st.caption("Supports: PDF, DOCX, TXT, and MD formats")
+    st.caption("Supports: PDF (via pdfplumber Layout engine), DOCX, TXT, and MD formats")
     
     st.sidebar.header("Document Sources")
     uploaded_old = st.sidebar.file_uploader("Upload Original File", type=["txt", "md", "docx", "pdf"])
