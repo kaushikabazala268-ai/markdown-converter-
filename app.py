@@ -4,11 +4,35 @@ import os
 import docx2txt
 import pdfplumber
 
-# Set layout to wide to give the side-by-side markdown layout full width
+# Force wide page layout to handle large table arrays cleanly
 st.set_page_config(page_title="Perfect Document Diff Matrix", layout="wide")
 
-def extract_text(uploaded_file):
-    """Extracts text while preserving spaces, alignments, and positioning configurations."""
+def convert_to_markdown_table(table_data):
+    """Converts raw list matrices into clean, standard Markdown pipe tables."""
+    if not table_data or not table_data[0]:
+        return ""
+        
+    markdown_lines = []
+    
+    # Process and clean Header values
+    headers = [str(cell).strip().replace("\n", " ") if cell else "" for cell in table_data[0]]
+    markdown_lines.append("| " + " | ".join(headers) + " |")
+    
+    # Generate structural layout separator line
+    separators = ["---" for _ in headers]
+    markdown_lines.append("| " + " | ".join(separators) + " |")
+    
+    # Process body rows
+    for row in table_data[1:]:
+        clean_row = [str(cell).strip().replace("\n", " ") if cell else "" for cell in row]
+        # Skip completely empty filler rows
+        if any(clean_row):
+            markdown_lines.append("| " + " | ".join(clean_row) + " |")
+            
+    return "\n".join(markdown_lines)
+
+def extract_document_as_markdown(uploaded_file):
+    """Extracts tables into real Markdown strings and fallback lines without losing structure."""
     if uploaded_file is None:
         return ""
     
@@ -22,45 +46,33 @@ def extract_text(uploaded_file):
             return docx2txt.process(uploaded_file)
             
         elif file_ext == "pdf":
-            text_slices = []
+            output_blocks = []
             with pdfplumber.open(uploaded_file) as pdf:
                 for page in pdf.pages:
-                    # layout=True keeps the absolute table positioning intact
-                    page_text = page.extract_text(layout=True)
-                    if page_text:
-                        text_slices.append(page_text)
-            return "\n".join(text_slices)
+                    # Target structured text grids first
+                    tables = page.extract_tables(table_settings={
+                        "vertical_strategy": "text", 
+                        "horizontal_strategy": "text"
+                    })
+                    if tables:
+                        for table in tables:
+                            md_table = convert_to_markdown_table(table)
+                            if md_table:
+                                output_blocks.append(md_table)
+                    else:
+                        # Fallback to absolute textual line layouts if no grid lines exist
+                        page_text = page.extract_text(layout=True)
+                        if page_text:
+                            output_blocks.append(page_text)
+            return "\n\n".join(output_blocks)
             
     except Exception as e:
-        st.error(f"Error parsing {uploaded_file.name}: {str(e)}")
+        st.error(f"Error compiling layout structure for {uploaded_file.name}: {str(e)}")
         return ""
     return ""
 
-def highlight_words(line1, line2):
-    """Compares individual words. Strips all line-through formatting and highlights changes."""
-    words1 = line1.split()
-    words2 = line2.split()
-    
-    sm = difflib.SequenceMatcher(None, words1, words2)
-    out1, out2 = [], []
-    
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        if tag == 'equal':
-            out1.extend(words1[i1:i2])
-            out2.extend(words2[j1:j2])
-        elif tag == 'replace':
-            # Clean text coloring highlights only. Absolutely no strike-through line decorators.
-            out1.append(f'<span class="only-highlight-del">{" ".join(words1[i1:i2])}</span>')
-            out2.append(f'<span class="only-highlight-add">{" ".join(words2[j1:j2])}</span>')
-        elif tag == 'delete':
-            out1.append(f'<span class="only-highlight-del">{" ".join(words1[i1:i2])}</span>')
-        elif tag == 'insert':
-            out2.append(f'<span class="only-highlight-add">{" ".join(words2[j1:j2])}</span>')
-            
-    return " ".join(out1), " ".join(out2)
-
 def main():
-    # Premium UI Stylesheet: Completely removes background boxes, masks lines, locks monospace matrix fonts
+    # Global UI Theme Override: Monospace layout grids, zero text strikethroughs, clean padding blocks
     st.markdown("""
     <style>
         @import url('https://googleapis.com');
@@ -69,140 +81,145 @@ def main():
             font-family: 'Inter', sans-serif !important;
         }
 
-        /* Markdown Data Matrix Table Constraints */
-        .diff-table {
-            width: 100%;
-            border-collapse: collapse;
+        /* Markdown Live Workspace Container Styles */
+        .markdown-workspace-view {
+            background-color: #0d1117;
+            color: #c9d1d9;
+            padding: 24px;
+            border-radius: 8px;
+            border: 1px solid #30363d;
             font-family: 'JetBrains Mono', monospace !important;
             font-size: 13px !important;
             line-height: 1.6 !important;
-            background-color: #0d1117;
-            color: #c9d1d9;
-            border: 1px solid #30363d;
-        }
-        
-        .diff-table th {
-            background-color: #161b22;
-            padding: 12px;
-            text-align: left;
-            border-bottom: 2px solid #30363d;
-            font-weight: 600;
-        }
-        
-        .diff-table td {
-            padding: 4px 10px;
-            border-bottom: 1px solid #21262d;
-            white-space: pre-wrap;
-            vertical-align: top;
-            width: 50%;
+            overflow-x: auto;
         }
 
-        /* Clean Highlighting Styles: Pure color tints with zero line decorations */
-        .only-highlight-add {
-            color: #2ea043 !important;
+        /* Native markdown table elements spacing rules */
+        .markdown-workspace-view table {
+            width: 100% !important;
+            margin: 15px 0 !important;
+            border-collapse: collapse !important;
+            border: 1px solid #30363d !important;
+        }
+        .markdown-workspace-view th {
+            background-color: #161b22 !important;
+            padding: 10px 14px !important;
+            border: 1px solid #30363d !important;
+            font-weight: 600 !important;
+            color: #ffffff !important;
+        }
+        .markdown-workspace-view td {
+            padding: 10px 14px !important;
+            border: 1px solid #21262d !important;
+        }
+
+        /* Clean highlight states without any line-through or strikethrough decorations */
+        .pure-highlight-add {
+            color: #3fb950 !important;
             font-weight: 600;
-            background: transparent !important;
+            background-color: rgba(46, 160, 67, 0.15) !important;
+            padding: 4px 6px;
+            margin: 2px 0;
+            border-radius: 4px;
             text-decoration: none !important;
         }
-        .only-highlight-del {
+        .pure-highlight-del {
             color: #f85149 !important;
             font-weight: 600;
-            background: transparent !important;
+            background-color: rgba(248, 51, 60, 0.15) !important;
+            padding: 4px 6px;
+            margin: 2px 0;
+            border-radius: 4px;
+            text-decoration: none !important;
+        }
+        .pure-highlight-mod {
+            color: #dbb32d !important;
+            font-weight: 600;
+            background-color: rgba(218, 165, 32, 0.15) !important;
+            padding: 4px 6px;
+            margin: 2px 0;
+            border-radius: 4px;
             text-decoration: none !important;
         }
     </style>
     """, unsafe_allow_html=True)
 
-    st.title("📄 Perfect Markdown Comparison Matrix")
-    st.caption("Clean text highlighting layout with absolute structural mapping.")
+    st.title("📄 True Markdown Table Diff Matrix")
+    st.caption("Parses complex PDF/Word grids into authentic Markdown elements.")
     
     st.sidebar.header("Document Sources")
     uploaded_old = st.sidebar.file_uploader("Upload Original File", type=["txt", "md", "docx", "pdf"])
     uploaded_new = st.sidebar.file_uploader("Upload Modified File", type=["txt", "md", "docx", "pdf"])
     
     if not uploaded_old or not uploaded_new:
-        st.info("Please upload both documents in the sidebar configuration drawer to view the comparison table.")
+        st.info("Please upload both items in the sidebar configuration panel to render the comparison view.")
         return
 
-    text1 = extract_text(uploaded_old)
-    text2 = extract_text(uploaded_new)
+    # Extract tables into real Markdown structural arrays
+    md_text1 = extract_document_as_markdown(uploaded_old)
+    md_text2 = extract_document_as_markdown(uploaded_new)
     
-    lines1 = text1.splitlines()
-    lines2 = text2.splitlines()
+    lines1 = md_text1.splitlines()
+    lines2 = md_text2.splitlines()
     
     matcher = difflib.SequenceMatcher(None, lines1, lines2)
     
-    all_matrix = []
-    added_matrix = []
-    deleted_matrix = []
-    modified_matrix = []
+    all_output = []
+    added_output = []
+    deleted_output = []
+    modified_output = []
     
     for tag, i1, i2, j1, j2 in matcher.get_opcodes():
         if tag == 'equal':
             for line in lines1[i1:i2]:
-                row = f'<tr><td>{line}</td><td>{line}</td></tr>'
-                all_matrix.append(row)
-                
+                all_output.append(line)
+        
         elif tag == 'replace':
-            max_len = max(i2 - i1, j2 - j1)
-            for idx in range(max_len):
-                l1 = lines1[i1 + idx] if (i1 + idx) < i2 else ""
-                l2 = lines2[j1 + idx] if (j1 + idx) < j2 else ""
-                
-                hl1, hl2 = highlight_words(l1, l2)
-                row = f'<tr><td>{hl1}</td><td>{hl2}</td></tr>'
-                all_matrix.append(row)
-                modified_matrix.append(row)
+            for line in lines1[i1:i2]:
+                styled = f'<div class="pure-highlight-mod">{line}</div>'
+                all_output.append(styled)
+                modified_output.append(styled)
+            for line in lines2[j1:j2]:
+                styled = f'<div class="pure-highlight-mod">{line}</div>'
+                all_output.append(styled)
+                modified_output.append(styled)
                 
         elif tag == 'delete':
             for line in lines1[i1:i2]:
-                row = f'<tr><td><span class="only-highlight-del">{line}</span></td><td></td></tr>'
-                all_matrix.append(row)
-                deleted_matrix.append(row)
+                styled = f'<div class="pure-highlight-del">{line}</div>'
+                all_output.append(styled)
+                deleted_output.append(styled)
                 
         elif tag == 'insert':
             for line in lines2[j1:j2]:
-                row = f'<tr><td></td><td><span class="only-highlight-add">{line}</span></td></tr>'
-                all_matrix.append(row)
-                added_matrix.append(row)
+                styled = f'<div class="pure-highlight-add">{line}</div>'
+                all_output.append(styled)
+                added_output.append(styled)
 
-    # Filtering Panel Action Buttons
+    # Filtering Panel Column Grid Navigation
     col1, col2, col3, col4 = st.columns(4)
-    if "view_state" not in st.session_state:
-        st.session_state.view_state = "Show All"
+    if "display_state" not in st.session_state:
+        st.session_state.display_state = "Show All"
         
-    if col1.button("Show All", use_container_width=True): st.session_state.view_state = "Show All"
-    if col2.button(f"Added ({len(added_matrix)})", use_container_width=True): st.session_state.view_state = "Added"
-    if col3.button(f"Deleted ({len(deleted_matrix)})", use_container_width=True): st.session_state.view_state = "Deleted"
-    if col4.button(f"Modified ({len(modified_matrix)})", use_container_width=True): st.session_state.view_state = "Modified"
+    if col1.button("Show All", use_container_width=True): st.session_state.display_state = "Show All"
+    if col2.button(f"Added ({len(added_output)})", use_container_width=True): st.session_state.display_state = "Added"
+    if col3.button(f"Deleted ({len(deleted_output)})", use_container_width=True): st.session_state.view_state = "Deleted"
+    if col4.button(f"Modified ({len(modified_output)})", use_container_width=True): st.session_state.display_state = "Modified"
 
-    if st.session_state.current_view == "Show All":
-        active_rows = "".join(all_matrix)
-    elif st.session_state.view_state == "Added":
-        active_rows = "".join(added_matrix) if added_matrix else '<tr><td colspan="2">No elements found.</td></tr>'
-    elif st.session_state.view_state == "Deleted":
-        active_rows = "".join(deleted_matrix) if deleted_matrix else '<tr><td colspan="2">No elements found.</td></tr>'
-    elif st.session_state.view_state == "Modified":
-        active_rows = "".join(modified_matrix) if modified_matrix else '<tr><td colspan="2">No elements found.</td></tr>'
+    # Select targeted lines string mapping
+    if st.session_state.display_state == "Show All":
+        final_markdown_string = "\n".join(all_output)
+    elif st.session_state.display_state == "Added":
+        final_markdown_string = "\n".join(added_output) if added_output else "No data blocks added."
+    elif st.session_state.display_state == "Deleted":
+        final_markdown_string = "\n".join(deleted_output) if deleted_output else "No data blocks deleted."
+    elif st.session_state.display_state == "Modified":
+        final_markdown_string = "\n".join(modified_output) if modified_output else "No modifications identified on data grids."
 
-    st.subheader(f"Viewing Matrix: {st.session_state.view_state}")
+    st.subheader(f"Current Structure: {st.session_state.display_state}")
     
-    # Generate the Markdown Side-by-Side Table Comparison Block
-    table_markdown = f"""
-    <table class="diff-table">
-        <thead>
-            <tr>
-                <th>Original Code State ({uploaded_old.name})</th>
-                <th>Modified Code State ({uploaded_new.name})</th>
-            </tr>
-        </thead>
-        <tbody>
-            {active_rows}
-        </tbody>
-    </table>
-    """
-    
-    st.markdown(table_markdown, unsafe_allow_html=True)
+    # Process rendering of actual Markdown tables and elements
+    st.markdown(f'<div class="markdown-workspace-view">{final_markdown_string}</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
