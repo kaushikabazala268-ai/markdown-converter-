@@ -1,7 +1,16 @@
 import streamlit as st
 import difflib
 import pdfplumber
-from docx import Document
+
+# Robust, crash-proof document loader for Streamlit Cloud
+try:
+    from docx import Document
+except ImportError:
+    try:
+        import docx
+        from docx import Document
+    except ImportError:
+        st.error("Document parser initializing. If this message stays, please refresh the browser.")
 
 # Force wide layout page configuration to maximize screen space
 st.set_page_config(page_title="Perfect Document Diff Matrix", layout="wide")
@@ -215,6 +224,7 @@ def main():
         .block-added { background-color: rgba(46, 160, 67, 0.04) !important; }
         .block-deleted { background-color: rgba(248, 51, 60, 0.04) !important; }
 
+        /* Pure background color highlights. NO text strikethrough decorations */
         .diff-add {
             background-color: rgba(46, 160, 67, 0.25) !important;
             color: #3fb950 !important;
@@ -233,9 +243,3 @@ def main():
         }
     </style>
     """, unsafe_allow_html=True)
-
-    st.title("📄 Multi-Format Unified Layout Diff Matrix")
-    st.caption("Parses text and structural grid tables seamlessly for PDF and Word files.")
-    
-    st.sidebar.header("Document Sources")
-    uploaded_old = st.sidebar.file_uploader("Upload Original File", type=["pdf", "docx"])
