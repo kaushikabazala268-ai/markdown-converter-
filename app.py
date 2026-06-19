@@ -1,45 +1,129 @@
-import os
-
-# 1. Define the complete interactive Streamlit App code (app.py)
-app_script_content = """import streamlit as st
+import streamlit as st
 import difflib
 import os
+import docx2txt
+from pypdf import PdfReader
 
 # Set page layout config to wide mode for absolute maximum text space
 st.set_page_config(page_title="Perfect Document Diff Matrix", layout="wide")
 
-def read_file(file_path):
-    if not os.path.exists(file_path):
-        return None
-    with open(file_path, 'r', encoding='utf-8') as f:
-        return f.read()
+def extract_text(uploaded_file):
+    """Extracts clean text strings from TXT, MD, DOCX, or PDF while keeping spacing."""
+    if uploaded_file is None:
+        return ""
+    
+    file_ext = uploaded_file.name.split(".")[-1].lower()
+    
+    try:
+        if file_ext in ["txt", "md"]:
+            return uploaded_file.read().decode("utf-8")
+            
+        elif file_ext == "docx":
+            return docx2txt.process(uploaded_file)
+            
+        elif file_ext == "pdf":
+            reader = PdfReader(uploaded_file)
+            text_slices = []
+            for page in reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text_slices.append(page_text)
+            return "\n".join(text_slices)
+            
+    except Exception as e:
+        st.error(f"Error parsing {uploaded_file.name}: {str(e)}")
+        return ""
+    return ""
 
 def main():
+    # Custom embedded styling inside Streamlit to load external typography and freeze layouts
+    st.markdown("""
+    <style>
+        /* Import premium fonts from
+        */
+        @import url('https://googleapis.com');
+
+        /* Force Inter Font styling on global application text wrapper layers */
+        html, body, [data-testid="stAppViewContainer"], .stMarkdown, .stButton button, p, h1, h2, h3, span {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+        }
+        
+        /* Master Headings typography tuning */
+        h1 {
+            font-weight: 700 !important;
+            letter-spacing: -0.02em !important;
+        }
+        
+        /* Custom UI Buttons styling overrides */
+        .stButton button {
+            font-weight: 600 !important;
+            font-size: 13px !important;
+            letter-spacing: -0.01em !important;
+            border-radius: 8px !important;
+            transition: all 0.2s ease;
+        }
+
+        /* Laser-focused locked typography constraints for the Document Matrix data rows */
+        .diff-container, .line-row, code, pre {
+            font-family: 'JetBrains Mono', monospace !important;
+            font-size: 13px !important;
+            line-height: 1.45 !important;
+            letter-spacing: 0em !important;
+        }
+        
+        /* Layout block definitions */
+        .diff-container {
+            background-color: #0d1117;
+            color: #c9d1d9;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+            white-space: pre;
+            overflow-x: auto;
+            margin-top: 10px;
+        }
+        .line-row {
+            margin: 0 !important;
+            padding: 1px 0 !important;
+            min-height: 1.45em;
+        }
+        .highlight-add {
+            background-color: rgba(46, 160, 67, 0.22);
+            color: #3fb950;
+            display: inline-block;
+            width: 100%;
+            font-weight: 500;
+        }
+        .highlight-del {
+            background-color: rgba(248, 51, 60, 0.22);
+            color: #f85149;
+            text-decoration: line-through;
+            display: inline-block;
+            width: 100%;
+            font-weight: 500;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
     st.title("📄 Perfect Document Diff Matrix")
+    st.caption("Supports: PDF, DOCX, TXT, and MD formats")
     
-    # Define targets
-    file1_path = "old_file.txt" 
-    file2_path = "new_file.txt"
-    
-    # Core fallback: Allow manual uploading if files aren't in the root folder yet
     st.sidebar.header("Document Sources")
-    uploaded_old = st.sidebar.file_uploader("Upload Original File", type=["txt", "md", "csv"])
-    uploaded_new = st.sidebar.file_uploader("Upload Modified File", type=["txt", "md", "csv"])
+    uploaded_old = st.sidebar.file_uploader("Upload Original File", type=["txt", "md", "docx", "pdf"])
+    uploaded_new = st.sidebar.file_uploader("Upload Modified File", type=["txt", "md", "docx", "pdf"])
     
-    # Determine which file text to read
-    text1 = uploaded_old.read().decode("utf-8") if uploaded_old else read_file(file1_path)
-    text2 = uploaded_new.read().decode("utf-8") if uploaded_new else read_file(file2_path)
-    
-    if text1 is None or text2 is None:
-        st.warning("Please place 'old_file.txt' and 'new_file.txt' in your repository root, or upload them via the sidebar.")
+    if not uploaded_old or not uploaded_new:
+        st.info("Please upload both the original and modified document in the sidebar to view changes.")
         return
 
+    text1 = extract_text(uploaded_old)
+    text2 = extract_text(uploaded_new)
+    
     lines1 = text1.splitlines()
     lines2 = text2.splitlines()
     
     matcher = difflib.SequenceMatcher(None, lines1, lines2)
     
-    # Containers to keep track of rows categorized by change type
     all_rows = []
     added_rows = []
     deleted_rows = []
@@ -78,48 +162,9 @@ def main():
                 all_rows.append(row_html)
                 added_rows.append(row_html)
 
-    # Custom embedded styling inside Streamlit to freeze layouts, monospace alignments, and colors
-    st.markdown(\"\"\"
-    <style>
-        .stMarkdown div pre, code, .diff-container, .line-row {
-            font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace !important;
-            font-size: 13px !important;
-            line-height: 1.4 !important;
-        }
-        .diff-container {
-            background-color: #0d1117;
-            color: #c9d1d9;
-            padding: 15px;
-            border-radius: 6px;
-            border: 1px solid #30363d;
-            white-space: pre;
-            overflow-x: auto;
-        }
-        .line-row {
-            margin: 0 !important;
-            padding: 1px 0 !important;
-            min-height: 1.4em;
-        }
-        .highlight-add {
-            background-color: rgba(46, 160, 67, 0.25);
-            color: #3fb950;
-            display: inline-block;
-            width: 100%;
-        }
-        .highlight-del {
-            background-color: rgba(248, 51, 60, 0.25);
-            color: #f85149;
-            text-decoration: line-through;
-            display: inline-block;
-            width: 100%;
-        }
-    </style>
-    \"\"\", unsafe_allow_html=True)
-
     # Interactive Navigation Action Buttons using Native Streamlit Columns
     col1, col2, col3, col4 = st.columns(4)
     
-    # Initialize Streamlit active view tracker state
     if "current_view" not in st.session_state:
         st.session_state.current_view = "Show All"
         
@@ -132,7 +177,6 @@ def main():
     if col4.button(f"Modified ({len(modified_rows)})", use_container_width=True):
         st.session_state.current_view = "Modified"
 
-    # Select display data based on active tracking state
     if st.session_state.current_view == "Show All":
         selected_data = "".join(all_rows)
     elif st.session_state.current_view == "Added":
@@ -143,43 +187,7 @@ def main():
         selected_data = "".join(modified_rows) if modified_rows else '<div class="line-row">No records found.</div>'
 
     st.subheader(f"Viewing: {st.session_state.current_view}")
-    
-    # Render final zero-spacing absolute-font diff layout matrix 
     st.markdown(f'<div class="diff-container">{selected_data}</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
-"""
-
-# 2. Define standard external python requirements needed for Streamlit environment engine
-requirements_content = """streamlit>=1.35.0
-"""
-
-# 3. Streamlit internal server theme setup to guarantee a Dark Mode default experience
-config_toml_content = """[theme]
-primaryColor = "#1f6feb"
-backgroundColor = "#0d1117"
-secondaryBackgroundColor = "#161b22"
-textColor = "#c9d1d9"
-font = "monospace"
-"""
-
-print("Initializing local setup deployment for Streamlit architecture...")
-
-# Write Streamlit target runtime file
-with open("app.py", "w", encoding="utf-8") as f:
-    f.write(app_script_content)
-print("[SUCCESS] Generated file: app.py")
-
-# Write environment specification file
-with open("requirements.txt", "w", encoding="utf-8") as f:
-    f.write(requirements_content)
-print("[SUCCESS] Generated file: requirements.txt")
-
-# Build target subfolder hidden settings layout configurations
-os.makedirs(".streamlit", exist_ok=True)
-with open(".streamlit/config.toml", "w", encoding="utf-8") as f:
-    f.write(config_toml_content)
-print("[SUCCESS] Generated configuration setup: .streamlit/config.toml")
-
-print("\\nInitialization Complete! To run locally, execute: pip install -r requirements.txt && streamlit run app.py")
